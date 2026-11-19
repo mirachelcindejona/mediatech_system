@@ -1,0 +1,22 @@
+@layer components {
+    body:has(#inventory-app .ui-dialog[open]) { overflow-y: auto; }
+    #inventory-app { @apply text-[12px] leading-normal font-normal text-neutral-800; font-family: inherit; }
+    .inventory-panel { @apply overflow-hidden rounded-xl border border-neutral-200 bg-white shadow-xs; }
+    .inventory-stat { @apply min-h-[126px] p-[18px]; }
+    .inventory-stat-label { @apply text-[11px] font-semibold text-neutral-500; }
+    .inventory-stat-value { @apply mt-3 mb-1 text-[25px] font-extrabold tracking-[-0.7px] text-neutral-900; }
+    .inventory-stat-foot { @apply text-[10px] text-neutral-500; }
+    .inventory-notice { @apply rounded-lg border border-primary-50 bg-gray-50 px-[14px] py-3 text-[11px] leading-[1.6] text-neutral-600; }
+    .inventory-filters { @apply flex-wrap border-b border-neutral-100 px-[18px] py-[14px]; }
+    .inventory-order-product { @apply min-w-[160px] whitespace-normal; }
+
+    /* Match User Management/Manajemen Role without a separate font setup. */
+    #inventory-app .ui-page-title,
+    #inventory-app .ui-section-title,
+    #inventory-app .ui-dialog-title { font-family: inherit; font-weight: 800; }
+    #inventory-app .ui-badge { font-weight: 800; }
+    #inventory-app .ui-page-title { line-height: 1.5; }
+    #inventory-app .ui-dialog { font-family: inherit; line-height: 1.5; }
+    #inventory-app .ui-button,
+    #inventory-app .ui-input { line-height: 1.5; }
+}
