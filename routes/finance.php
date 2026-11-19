@@ -2,9 +2,45 @@
 
 use App\Http\Controllers\Finance\CashFlowController;
 use App\Http\Controllers\Finance\PettyCashController;
+use App\Http\Controllers\Finance\PaymentController;
 use Illuminate\Support\Facades\Route;
 
 Route::middleware(["auth", "active"])->group(function () {
+
+    Route::prefix('payments')->name('payments.')->group(function () {
+        Route::get('/', [PaymentController::class, 'index'])
+            ->middleware('permission:payments.read')
+            ->name('index');
+
+        Route::get('/create', [PaymentController::class, 'create'])
+            ->middleware(['permission:payments.read', 'permission:payments.create'])
+            ->name('create');
+
+        Route::get('/export', [PaymentController::class, 'export'])
+            ->middleware(['permission:payments.read', 'permission:payments.export'])
+            ->name('export');
+
+        Route::post('/', [PaymentController::class, 'store'])
+            ->middleware('permission:payments.create')
+            ->name('store');
+
+        Route::post('/{payment}/validate', [PaymentController::class, 'validatePayment'])
+            ->whereNumber('payment')
+            ->middleware('permission:payments.approve')
+            ->name('validate');
+
+        Route::get('/{payment}/attachments/{attachment}', [PaymentController::class, 'showAttachment'])
+            ->whereNumber('payment')
+            ->whereNumber('attachment')
+            ->middleware('permission:payments.read')
+            ->name('attachments.show');
+
+        Route::get('/{payment}', [PaymentController::class, 'show'])
+            ->whereNumber('payment')
+            ->middleware('permission:payments.read')
+            ->name('show');
+    });
+
     Route::prefix("cash-flow")->name("cash-flow.")->group(function () {
         Route::get("/", [CashFlowController::class, "index"])
             ->middleware("permission:cash_flow.read")

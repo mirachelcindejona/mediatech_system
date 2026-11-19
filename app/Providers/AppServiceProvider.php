@@ -4,6 +4,10 @@ namespace App\Providers;
 
 use App\Models\CMS\CmsPage;
 use App\Models\Permission;
+use App\Models\Sales\Invoice;
+use App\Policies\InvoicePolicy;
+use App\Models\Finance\Payment;
+use App\Policies\PaymentPolicy;
 use App\Models\User;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
@@ -22,6 +26,8 @@ class AppServiceProvider extends ServiceProvider
 
     public function boot(): void
     {
+        Gate::policy(Invoice::class, InvoicePolicy::class);
+        Gate::policy(Payment::class, PaymentPolicy::class);
         // Permission dibaca dari database setiap pemeriksaan. Permission baru
         // dapat langsung dipakai tanpa daftar Gate yang ditulis manual.
         Gate::before(function (?User $user, string $ability) {
