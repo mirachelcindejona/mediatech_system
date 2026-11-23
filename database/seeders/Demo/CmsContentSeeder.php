@@ -30,8 +30,7 @@ class CmsContentSeeder extends Seeder
             ['slug' => 'about-us', 'title' => 'Tentang Perusahaan', 'status' => 'Published'],
             ['slug' => 'visi-misi', 'title' => 'Visi & Misi', 'status' => 'Published'],
             ['slug' => 'produk-layanan', 'title' => 'Produk & Layanan', 'status' => 'Published'],
-            ['slug' => 'cara-kerja', 'title' => 'Cara Kerja', 'status' => 'Published'],
-            ['slug' => 'proyek-terbaru', 'title' => 'Proyek Terbaru', 'status' => 'Draft'],
+            ['slug' => 'proyek-terbaru', 'title' => 'Proyek Terbaru', 'status' => 'Published'],
             ['slug' => 'sektor-pelanggan', 'title' => 'Sektor Pelanggan', 'status' => 'Published'],
             ['slug' => 'testimoni', 'title' => 'Testimoni', 'status' => 'Published'],
             ['slug' => 'partner-brand', 'title' => 'Partner & Brand', 'status' => 'Published'],
@@ -43,6 +42,14 @@ class CmsContentSeeder extends Seeder
                 ['slug' => $page['slug']],
                 ['title' => $page['title'], 'status' => $page['status'], 'updated_by' => $adminId, 'updated_at' => $now, 'deleted_at' => null, 'deleted_by' => null, 'deletion_reason' => null]
             );
+        }
+
+        // Section yang sudah dihapus dari company profile ("Cara kerja" dan "Mengapa memilih kami").
+        $removedAt = ['deleted_at' => $now, 'deleted_by' => $adminId, 'deletion_reason' => 'Section dihapus dari company profile'];
+        DB::table('cms_pages')->where('slug', 'cara-kerja')->update($removedAt + ['status' => 'Draft']);
+        foreach (['home' => ['whyTitle', 'why'], 'about-us' => ['founded']] as $slug => $keys) {
+            $removedPageId = (int) DB::table('cms_pages')->where('slug', $slug)->value('page_id');
+            DB::table('cms_fields')->where('page_id', $removedPageId)->whereIn('field_key', $keys)->update($removedAt);
         }
 
         // ============================================
@@ -177,22 +184,21 @@ class CmsContentSeeder extends Seeder
                     ['value' => '25+', 'label' => 'Tim teknisi profesional'],
                     ['value' => '15+', 'label' => 'Brand mitra resmi'],
                 ]),
-                'whyTitle' => 'Mengapa memilih kami',
-                'why' => json_encode([
-                    ['title' => 'Tepat waktu', 'desc' => 'Pekerjaan selesai sesuai jadwal yang disepakati.'],
-                    ['title' => 'Sesuai standar', 'desc' => 'Kualitas pekerjaan mengikuti standarisasi pekerjaan.'],
-                    ['title' => 'Tim profesional', 'desc' => 'Dikerjakan teknisi yang berpengalaman di bidangnya.'],
-                    ['title' => 'Purna jual terbaik', 'desc' => 'Jaminan purna jual dan layanan maintenance.'],
-                ]),
                 'ctaTitle' => 'Butuh instalasi atau perangkat baru?',
                 'ctaSub' => 'Ceritakan kebutuhan Anda, tim kami siap menyiapkan penawaran.',
+                'ctaBtnLabel' => 'Hubungi kami',
+                'ctaBtnLink' => '#kontak',
+                'heroImgAlt' => 'Gedung perkantoran modern',
+                'seoTitle' => 'PT Meditech Cipta Inovasi',
+                'seoDesc' => 'Jasa konstruksi dan instalasi, serta perdagangan perlengkapan alat kesehatan, elektrikal, elektronik, mesin kantor, dan komputer.',
             ],
             'about-us' => [
                 'img' => $mediaIds['staff.jpg'],
                 'body' => 'PT Meditech Cipta Inovasi didirikan pada 2 Juni 2025 sebagai perusahaan yang bergerak di bidang jasa konstruksi dan instalasi, serta perdagangan perlengkapan alat kesehatan, elektrikal, elektronik, mesin kantor, komputer, dan lainnya.',
                 'body2' => 'Kami berkomitmen memberikan pelayanan terbaik, dengan ketepatan waktu dan kerja sama untuk melayani semua kebutuhan pelanggan.',
                 'quote' => 'Great things are never done by one person. They\'re done by a team.',
-                'founded' => '2 Juni 2025',
+                'title' => 'Tentang perusahaan',
+                'imgAlt' => 'Staf tersenyum sambil memeriksa dokumen',
             ],
             'visi-misi' => [
                 'visi' => 'Menjadi perusahaan yang memiliki integritas, mitra terpercaya, profesional, competitive dengan pelayanan purna jual terbaik.',
@@ -205,7 +211,10 @@ class CmsContentSeeder extends Seeder
                 ]),
             ],
             'produk-layanan' => [
+                'title' => 'Produk & layanan',
                 'intro' => 'Instalasi jasa untuk fasilitas kesehatan dan perkantoran, ditambah perangkat keras dan layanan perawatan.',
+                'serviceTag' => 'Instalasi jasa',
+                'hwImgAlt' => 'Logo brand perangkat keras',
                 'services' => json_encode([
                     ['img' => $mediaIds['p1.jpg'], 'title' => 'Jaringan gas medis & nurse call'],
                     ['img' => $mediaIds['p2.jpg'], 'title' => 'Mekanikal listrik tegangan rendah'],
@@ -223,16 +232,8 @@ class CmsContentSeeder extends Seeder
                 'mtTitle' => 'Maintenance',
                 'mtDesc' => 'Layanan perawatan berkala agar perangkat dan instalasi tetap berfungsi optimal.',
             ],
-            'cara-kerja' => [
-                'intro' => 'Dari kebutuhan Anda sampai layanan purna jual.',
-                'steps' => json_encode([
-                    ['title' => 'Konsultasi', 'desc' => 'Kami memahami kebutuhan dan anggaran Anda.'],
-                    ['title' => 'Survei & penawaran', 'desc' => 'Survei lokasi dan penawaran yang jelas.'],
-                    ['title' => 'Instalasi', 'desc' => 'Pemasangan oleh tim teknisi sesuai standar.'],
-                    ['title' => 'Purna jual', 'desc' => 'Garansi, dukungan, dan maintenance.'],
-                ]),
-            ],
             'proyek-terbaru' => [
+                'title' => 'Proyek terbaru',
                 'intro' => 'Beberapa pekerjaan yang telah kami selesaikan.',
                 'items' => json_encode([
                     ['tag' => 'Gas medis & nurse call', 'title' => 'Instalasi ruang rawat inap', 'meta' => 'RS Contoh Sehat · Tangerang · 2025'],
@@ -241,25 +242,37 @@ class CmsContentSeeder extends Seeder
                 ]),
             ],
             'sektor-pelanggan' => [
+                'title' => 'Dipercaya berbagai sektor',
                 'intro' => 'Kami membangun kemitraan yang erat dengan pelanggan dalam mencapai tujuan mereka, terutama di bidang teknologi.',
                 'sectors' => json_encode([
-                    ['name' => 'Perbankan'],
-                    ['name' => 'Perusahaan oli & gas'],
-                    ['name' => 'Manufaktur'],
-                    ['name' => 'Perusahaan distribusi'],
-                    ['name' => 'Rumah sakit'],
-                    ['name' => 'Retail'],
-                    ['name' => 'Pendidikan'],
+                    ['name' => 'Perbankan', 'icon' => 'bank'],
+                    ['name' => 'Perusahaan oli & gas', 'icon' => 'oilgas'],
+                    ['name' => 'Manufaktur', 'icon' => 'factory'],
+                    ['name' => 'Perusahaan distribusi', 'icon' => 'logistics'],
+                    ['name' => 'Rumah sakit', 'icon' => 'hospital'],
+                    ['name' => 'Retail', 'icon' => 'retail'],
+                    ['name' => 'Pendidikan', 'icon' => 'education'],
                 ]),
             ],
             'testimoni' => [
+                'title' => 'Kata pelanggan kami',
                 'items' => json_encode([
                     ['name' => 'Dzaky Julian', 'role' => 'Manajer Fasilitas, RS Contoh Sehat', 'quote' => 'Instalasi selesai tepat waktu dan timnya responsif saat ada kendala.'],
                     ['name' => 'Rina Wulandari', 'role' => 'Kepala IT, PT Contoh Distribusi', 'quote' => 'Pengadaan perangkat sesuai spesifikasi dan layanan purna jualnya jelas.'],
                     ['name' => 'Andi Pratama', 'role' => 'General Affair, Gedung Contoh', 'quote' => 'Pemasangan CCTV rapi dan dokumentasinya lengkap.'],
                 ]),
             ],
+            'partner-brand' => [
+                'title' => 'Brand yang bekerja sama dengan kami',
+                'intro' => 'Kami memasok perangkat dari brand ternama dan mitra resmi.',
+            ],
             'kontak' => [
+                'title' => 'Hubungi kami',
+                'intro' => 'Kirim pesan atau datang langsung ke kantor kami.',
+                'companyName' => 'PT Meditech Cipta Inovasi',
+                'siteName' => 'MediTech',
+                'headerLogoAlt' => 'Logo Meditech',
+                'copyright' => '© 2026 PT Meditech Cipta Inovasi',
                 'address' => 'Jl. Neo Paloma II Blok S10 No 26 Cluster Garden Ville, Desa Ciakar, Kec. Panongan, Kab. Tangerang, Banten.',
                 'phone' => '021 - 8908 - 8898',
                 'email' => 'info@meditech.co.id',
@@ -307,13 +320,6 @@ class CmsContentSeeder extends Seeder
             ['page' => 'produk-layanan', 'section' => 'hardware', 'title' => 'Projector', 'subtitle' => '', 'description' => 'InFocus, Epson, NEC, dll.', 'order' => 4, 'media' => null],
         ];
 
-        $processItems = [
-            ['page' => 'cara-kerja', 'section' => 'steps', 'title' => 'Konsultasi', 'subtitle' => '', 'description' => 'Kami memahami kebutuhan dan anggaran Anda.', 'order' => 1, 'media' => null],
-            ['page' => 'cara-kerja', 'section' => 'steps', 'title' => 'Survei & penawaran', 'subtitle' => '', 'description' => 'Survei lokasi dan penawaran yang jelas.', 'order' => 2, 'media' => null],
-            ['page' => 'cara-kerja', 'section' => 'steps', 'title' => 'Instalasi', 'subtitle' => '', 'description' => 'Pemasangan oleh tim teknisi sesuai standar.', 'order' => 3, 'media' => null],
-            ['page' => 'cara-kerja', 'section' => 'steps', 'title' => 'Purna jual', 'subtitle' => '', 'description' => 'Garansi, dukungan, dan maintenance.', 'order' => 4, 'media' => null],
-        ];
-
         $projectItems = [
             ['page' => 'proyek-terbaru', 'section' => 'items', 'title' => 'Instalasi ruang rawat inap', 'subtitle' => 'Gas medis & nurse call', 'description' => '', 'meta' => 'RS Contoh Sehat · Tangerang · 2025', 'order' => 1, 'media' => null],
             ['page' => 'proyek-terbaru', 'section' => 'items', 'title' => 'Sistem CCTV dan access door', 'subtitle' => 'Networking', 'description' => '', 'meta' => 'Gedung Perkantoran Contoh · Jakarta · 2025', 'order' => 2, 'media' => null],
@@ -321,13 +327,13 @@ class CmsContentSeeder extends Seeder
         ];
 
         $sectorItems = [
-            ['page' => 'sektor-pelanggan', 'section' => 'sectors', 'title' => 'Perbankan', 'subtitle' => '', 'description' => '', 'order' => 1],
-            ['page' => 'sektor-pelanggan', 'section' => 'sectors', 'title' => 'Perusahaan oli & gas', 'subtitle' => '', 'description' => '', 'order' => 2],
-            ['page' => 'sektor-pelanggan', 'section' => 'sectors', 'title' => 'Manufaktur', 'subtitle' => '', 'description' => '', 'order' => 3],
-            ['page' => 'sektor-pelanggan', 'section' => 'sectors', 'title' => 'Perusahaan distribusi', 'subtitle' => '', 'description' => '', 'order' => 4],
-            ['page' => 'sektor-pelanggan', 'section' => 'sectors', 'title' => 'Rumah sakit', 'subtitle' => '', 'description' => '', 'order' => 5],
-            ['page' => 'sektor-pelanggan', 'section' => 'sectors', 'title' => 'Retail', 'subtitle' => '', 'description' => '', 'order' => 6],
-            ['page' => 'sektor-pelanggan', 'section' => 'sectors', 'title' => 'Pendidikan', 'subtitle' => '', 'description' => '', 'order' => 7],
+            ['page' => 'sektor-pelanggan', 'section' => 'sectors', 'title' => 'Perbankan', 'subtitle' => '', 'description' => '', 'meta' => 'bank', 'order' => 1],
+            ['page' => 'sektor-pelanggan', 'section' => 'sectors', 'title' => 'Perusahaan oli & gas', 'subtitle' => '', 'description' => '', 'meta' => 'oilgas', 'order' => 2],
+            ['page' => 'sektor-pelanggan', 'section' => 'sectors', 'title' => 'Manufaktur', 'subtitle' => '', 'description' => '', 'meta' => 'factory', 'order' => 3],
+            ['page' => 'sektor-pelanggan', 'section' => 'sectors', 'title' => 'Perusahaan distribusi', 'subtitle' => '', 'description' => '', 'meta' => 'logistics', 'order' => 4],
+            ['page' => 'sektor-pelanggan', 'section' => 'sectors', 'title' => 'Rumah sakit', 'subtitle' => '', 'description' => '', 'meta' => 'hospital', 'order' => 5],
+            ['page' => 'sektor-pelanggan', 'section' => 'sectors', 'title' => 'Retail', 'subtitle' => '', 'description' => '', 'meta' => 'retail', 'order' => 6],
+            ['page' => 'sektor-pelanggan', 'section' => 'sectors', 'title' => 'Pendidikan', 'subtitle' => '', 'description' => '', 'meta' => 'education', 'order' => 7],
         ];
 
         $testimoniItems = [
@@ -336,7 +342,7 @@ class CmsContentSeeder extends Seeder
             ['page' => 'testimoni', 'section' => 'items', 'title' => 'Andi Pratama', 'subtitle' => 'General Affair, Gedung Contoh', 'description' => 'Pemasangan CCTV rapi dan dokumentasinya lengkap.', 'order' => 3],
         ];
 
-        $allItems = array_merge($serviceItems, $hardwareItems, $processItems, $projectItems, $sectorItems, $testimoniItems);
+        $allItems = array_merge($serviceItems, $hardwareItems, $projectItems, $sectorItems, $testimoniItems);
 
         foreach ($allItems as $item) {
             $pageId = (int) DB::table('cms_pages')->where('slug', $item['page'])->value('page_id');

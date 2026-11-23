@@ -7,8 +7,11 @@ use App\Models\CMS\CmsItem;
 use App\Models\CMS\CmsMedia;
 use App\Models\CMS\CmsPage;
 use App\Models\CMS\CmsPartner;
+use App\Services\Cms\CmsContentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 
@@ -121,6 +124,9 @@ class CmsController
                 'companyName' => ['type' => 'text'],
                 'tagline'     => ['type' => 'text'],
                 'copyright'   => ['type' => 'text'],
+                'siteName'      => ['type' => 'text'],
+                'headerLogo'    => ['type' => 'image'],
+                'headerLogoAlt' => ['type' => 'text'],
             ],
         ],
     ];
@@ -158,6 +164,163 @@ class CmsController
         return view('admin.cms.trash');
     }
 
+
+    /**
+     * Memulihkan satu record dari Sampah CMS.
+     *
+     * Tipe dibatasi ke tabel CMS yang memang memiliki mekanisme soft delete.
+     * Record yang sudah aktif tidak dapat dipulihkan ulang.
+     */
+    public function restoreTrash(string $type, int $id)
+    {
+        $tables = [
+            'cms_pages'    => 'page_id',
+            'cms_items'    => 'item_id',
+            'cms_partners' => 'partner_id',
+            'cms_media'    => 'media_id',
+            'cms_fields'   => 'field_id',
+        ];
+
+        abort_unless(isset($tables[$type]), 404, 'Jenis data sampah tidak dikenal.');
+        abort_unless(Schema::hasTable($type) && Schema::hasColumn($type, 'deleted_at'), 404);
+
+        $idColumn = $tables[$type];
+
+        try {
+            $restored = DB::transaction(function () use ($type, $id, $idColumn) {
+                $query = DB::table($type)->where($idColumn, $id)->whereNotNull('deleted_at');
+                $record = $query->lockForUpdate()->first();
+
+                if (!$record) {
+                    return false;
+                }
+
+                $updates = ['deleted_at' => null];
+
+                if (Schema::hasColumn($type, 'deleted_by')) {
+                    $updates['deleted_by'] = null;
+                }
+                if (Schema::hasColumn($type, 'deletion_reason')) {
+                    $updates['deletion_reason'] = null;
+                }
+
+                DB::table($type)->where($idColumn, $id)->update($updates);
+
+                return true;
+            });
+        } catch (\Throwable $e) {
+            Log::error('Gagal memulihkan item Sampah CMS', [
+                'table' => $type,
+                'id' => $id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return back()->with('error', 'Item gagal dipulihkan. Silakan periksa relasi data atau hubungi administrator.');
+        }
+
+        if (!$restored) {
+            return back()->with('error', 'Item tidak ditemukan di Sampah CMS atau sudah dipulihkan.');
+        }
+
+        return back()->with('success', 'Item berhasil dipulihkan.');
+    }
+
+    /**
+     * Menghapus permanen satu record dari Sampah CMS.
+     *
+     * Halaman akan menghapus field, item, dan draft milik halaman tersebut.
+     * Media tidak boleh dihapus jika masih direferensikan oleh data CMS lain.
+     */
+    public function forceDeleteTrash(string $type, int $id)
+    {
+        $tables = [
+            'cms_pages'    => 'page_id',
+            'cms_items'    => 'item_id',
+            'cms_partners' => 'partner_id',
+            'cms_media'    => 'media_id',
+            'cms_fields'   => 'field_id',
+        ];
+
+        abort_unless(isset($tables[$type]), 404, 'Jenis data sampah tidak dikenal.');
+        abort_unless(Schema::hasTable($type) && Schema::hasColumn($type, 'deleted_at'), 404);
+
+        $idColumn = $tables[$type];
+        $mediaPath = null;
+
+        try {
+            DB::transaction(function () use ($type, $id, $idColumn, &$mediaPath) {
+                $record = DB::table($type)
+                    ->where($idColumn, $id)
+                    ->whereNotNull('deleted_at')
+                    ->lockForUpdate()
+                    ->first();
+
+                if (!$record) {
+                    abort(404, 'Item tidak ditemukan di Sampah CMS.');
+                }
+
+                if ($type === 'cms_media') {
+                    // Jangan hapus file yang masih dipakai, termasuk oleh record yang
+                    // sedang berada di sampah. Ini mencegah referensi media menjadi yatim.
+                    foreach (['cms_fields', 'cms_items', 'cms_partners'] as $referenceTable) {
+                        if (
+                            Schema::hasTable($referenceTable)
+                            && Schema::hasColumn($referenceTable, 'media_id')
+                            && DB::table($referenceTable)->where('media_id', $id)->exists()
+                        ) {
+                            abort(409, 'Media masih digunakan oleh data CMS. Hapus atau ganti referensi media terlebih dahulu.');
+                        }
+                    }
+
+                    $mediaPath = $record->file_path ?? null;
+                }
+
+                if ($type === 'cms_pages') {
+                    $pageId = $id;
+
+                    foreach (['cms_fields', 'cms_items'] as $childTable) {
+                        if (Schema::hasTable($childTable) && Schema::hasColumn($childTable, 'page_id')) {
+                            DB::table($childTable)->where('page_id', $pageId)->delete();
+                        }
+                    }
+
+                    if (Schema::hasTable('cms_page_drafts') && Schema::hasColumn('cms_page_drafts', 'page_id')) {
+                        DB::table('cms_page_drafts')->where('page_id', $pageId)->delete();
+                    }
+                }
+
+                DB::table($type)->where($idColumn, $id)->delete();
+            });
+
+            // File fisik dihapus setelah transaksi database berhasil.
+            if (
+                $type === 'cms_media'
+                && is_string($mediaPath)
+                && $mediaPath !== ''
+                && !str_starts_with($mediaPath, 'http://')
+                && !str_starts_with($mediaPath, 'https://')
+            ) {
+                Storage::disk('public')->delete($mediaPath);
+            }
+        } catch (\Symfony\Component\HttpKernel\Exception\HttpExceptionInterface $e) {
+            if (in_array($e->getStatusCode(), [404, 409], true)) {
+                return back()->with('error', $e->getMessage());
+            }
+
+            throw $e;
+        } catch (\Throwable $e) {
+            Log::error('Gagal menghapus permanen item Sampah CMS', [
+                'table' => $type,
+                'id' => $id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return back()->with('error', 'Item gagal dihapus permanen. Periksa relasi data dan konfigurasi database.');
+        }
+
+        return back()->with('success', 'Item berhasil dihapus permanen.');
+    }
+
     /**
      * Simpan konten satu halaman. Payload: {content: {...}, status: "Draft"|"Published"}.
      */
@@ -173,7 +336,19 @@ class CmsController
             return response()->json(['message' => 'Format konten tidak valid.'], 422);
         }
 
-        $status = $request->input('status') === 'Published' ? 'Published' : 'Draft';
+        $requestedStatus = $request->input('status', 'Draft');
+        if (!in_array($requestedStatus, ['Draft', 'Published'], true)) {
+            return response()->json(['message' => 'Status konten tidak valid.'], 422);
+        }
+        $status = $requestedStatus;
+
+        // Draft memerlukan tabel cms_page_drafts. Migration-nya sudah tersedia
+        // di database/migrations; tampilkan pesan eksplisit jika belum dijalankan.
+        if ($status === 'Draft' && !Schema::hasTable('cms_page_drafts')) {
+            return response()->json([
+                'message' => 'Tabel draft CMS belum tersedia. Jalankan php artisan migrate terlebih dahulu.',
+            ], 503);
+        }
 
         if ($status === 'Published') {
             foreach ($definition['fields'] as $key => $rule) {
@@ -196,6 +371,22 @@ class CmsController
                     ]);
                 }
 
+                // SIMPAN DRAFT: hanya ke tabel draft. Konten & status yang sedang tayang
+                // di website tidak disentuh sampai tombol Publish diklik.
+                if ($status === 'Draft') {
+                    DB::table('cms_page_drafts')->updateOrInsert(
+                        ['page_id' => $page->page_id],
+                        [
+                            'content'    => json_encode($this->sanitizeDraft($content, $definition, $userId), JSON_UNESCAPED_UNICODE),
+                            'updated_by' => $userId,
+                            'updated_at' => now(),
+                        ]
+                    );
+
+                    return;
+                }
+
+                // PUBLISH: tulis ke cms_fields, lalu hapus draft.
                 foreach ($definition['fields'] as $key => $rule) {
                     if (!array_key_exists($key, $content)) {
                         continue;
@@ -208,7 +399,13 @@ class CmsController
                         ->first();
 
                     if (!$field) {
-                        $field = new CmsField(['page_id' => $page->page_id, 'field_key' => $key]);
+                        $field = new CmsField([
+                            'page_id'            => $page->page_id,
+                            'field_key'          => $key,
+                            'field_value'        => '',
+                            'media_aspect_ratio' => '16:9',
+                            'media_fit_mode'     => 'cover',
+                        ]);
                     }
 
                     switch ($rule['type']) {
@@ -216,7 +413,7 @@ class CmsController
                             $mediaId = $this->resolveMedia($value, $userId);
                             if ($mediaId) {
                                 $field->media_id = $mediaId;
-                                $field->field_value = null;
+                                $field->field_value = '';
                             } elseif (!$field->exists) {
                                 continue 2; // belum ada gambar dan tidak ada yang diunggah
                             }
@@ -239,17 +436,28 @@ class CmsController
                     $field->save();
                 }
 
-                $page->status = $status;
+                $page->status = 'Published';
                 $page->updated_by = $userId;
                 $page->updated_at = now();
                 $page->save();
+
+                if (Schema::hasTable('cms_page_drafts')) {
+                    DB::table('cms_page_drafts')->where('page_id', $page->page_id)->delete();
+                }
             });
         } catch (\InvalidArgumentException $e) {
             return response()->json(['message' => $e->getMessage()], 422);
+        } catch (\Throwable $e) {
+            // Detail teknis (SQL, path) hanya masuk log, tidak dikirim ke browser.
+            Log::error('Gagal menyimpan konten CMS', ['slug' => $slug, 'error' => $e->getMessage()]);
+
+            return response()->json(['message' => 'Gagal menyimpan konten. Silakan coba lagi atau hubungi administrator.'], 500);
         }
 
         return response()->json([
-            'message' => $status === 'Published' ? 'Konten dipublikasikan.' : 'Draft tersimpan.',
+            'message' => $status === 'Published'
+                ? 'Konten dipublikasikan.'
+                : 'Draft tersimpan. Website belum berubah sampai Anda klik Publish.',
             'status'  => $status,
         ]);
     }
@@ -275,10 +483,19 @@ class CmsController
             ->get()
             ->groupBy('page_id');
 
+        $drafts = Schema::hasTable('cms_page_drafts')
+            ? DB::table('cms_page_drafts')->whereIn('page_id', $pageIds)->get()->keyBy('page_id')
+            : collect();
+
         $data = [];
 
         foreach ($pages as $page) {
+            $draftRow = $drafts->get($page->page_id);
+            $draftContent = $draftRow ? json_decode($draftRow->content, true) : null;
+
             $data[$page->slug] = [
+                'draft'      => is_array($draftContent) ? $draftContent : null,
+                'draft_at'   => $draftRow->updated_at ?? null,
                 'page'       => $page,
                 'fields'     => ($fieldsByPage->get($page->page_id) ?? collect())->keyBy('field_key'),
                 'items'      => ($itemsByPage->get($page->page_id) ?? collect())->groupBy('section_key'),
@@ -289,6 +506,64 @@ class CmsController
         }
 
         return $data;
+    }
+
+    /**
+     * Susun konten draft: hanya key yang ada di skema, unggahan baru (data URI)
+     * langsung disimpan sebagai file dan diganti URL-nya agar JSON draft tetap kecil.
+     */
+    private function sanitizeDraft(array $content, array $definition, $userId): array
+    {
+        $draft = [];
+
+        foreach ($definition['fields'] as $key => $rule) {
+            if (!array_key_exists($key, $content)) {
+                continue;
+            }
+
+            $value = $content[$key];
+
+            if ($rule['type'] === 'list') {
+                $rows = [];
+                foreach ((is_array($value) ? $value : []) as $row) {
+                    if (!is_array($row)) {
+                        continue;
+                    }
+
+                    $item = [];
+                    foreach ($rule['item'] as $itemKey) {
+                        $raw = $row[$itemKey] ?? '';
+                        $item[$itemKey] = $itemKey === 'img'
+                            ? $this->draftImage($raw, $userId)
+                            : (is_scalar($raw) ? trim((string) $raw) : '');
+                    }
+                    $rows[] = $item;
+                }
+
+                $draft[$key] = !empty($rule['max']) ? array_slice($rows, 0, (int) $rule['max']) : $rows;
+                continue;
+            }
+
+            $draft[$key] = $rule['type'] === 'image'
+                ? $this->draftImage($value, $userId)
+                : (is_scalar($value) ? trim((string) $value) : '');
+        }
+
+        return $draft;
+    }
+
+    private function draftImage($value, $userId): string
+    {
+        if (!is_string($value) || $value === '') {
+            return '';
+        }
+
+        if (str_starts_with($value, 'data:image/')) {
+            $media = CmsMedia::find($this->storeDataUri($value, $userId));
+            return $media ? CmsContentService::mediaUrl($media->file_path) : '';
+        }
+
+        return $value; // URL gambar yang sudah tersimpan
     }
 
     /**
@@ -404,7 +679,7 @@ class CmsController
             'file_name'    => $fileName,
             'file_path'    => $filePath,
             'media_type'   => $mime,
-            'alt_text'     => null,
+            'alt_text'     => '',
             'file_size_kb' => (int) ceil(strlen($binary) / 1024),
             'width_px'     => $info[0] ?? null,
             'height_px'    => $info[1] ?? null,

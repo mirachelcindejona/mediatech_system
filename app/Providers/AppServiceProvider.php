@@ -2,9 +2,9 @@
 
 namespace App\Providers;
 
-use App\Models\CMS\CmsPage;
 use App\Models\Permission;
 use App\Models\User;
+use App\Services\Cms\CmsContentService;
 use Illuminate\Cache\RateLimiting\Limit;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -17,7 +17,8 @@ class AppServiceProvider extends ServiceProvider
 {
     public function register(): void
     {
-        // Register binding tambahan di sini bila dibutuhkan.
+        // Satu instance per request agar konten CMS hanya dibaca sekali.
+        $this->app->singleton(CmsContentService::class);
     }
 
     public function boot(): void
@@ -63,14 +64,14 @@ class AppServiceProvider extends ServiceProvider
             ];
         });
 
-        // Share CMS fields with public views (home + layout)
+        // Bagikan konten CMS ke layout & view publik (header, footer, section).
         View::composer(['layouts.public', 'public.*'], function ($view) {
-            $page = CmsPage::published()->where('slug', 'about-us')->first();
-            if (!$page) {
-                $page = CmsPage::published()->orderBy('page_id')->first();
-            }
-            $fields = $page ? $page->fields()->whereNull('deleted_at')->pluck('field_value', 'field_key') : collect();
-            $view->with('cmsFields', $fields);
+            $content = app(CmsContentService::class);
+            $cms = request()->routeIs('cms.pages.preview')
+                ? $content->allWithDrafts()
+                : $content->all();
+
+            $view->with('cms', $cms);
         });
     }
 }

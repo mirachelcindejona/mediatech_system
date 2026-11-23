@@ -29,6 +29,7 @@
     $cmsUpdateUrl = Route::has('cms.pages.update')
         ? route('cms.pages.update', ['slug' => '__SLUG__'], false)
         : null;
+    $cmsDraftPreviewUrl = Route::has('cms.pages.preview') ? route('cms.pages.preview') : null;
 
     $mediaRows = DB::table('cms_media')->whereNull('deleted_at')->orderByDesc('uploaded_at')->get();
     $mediaById = $mediaRows->keyBy('media_id');
@@ -38,7 +39,7 @@
         if (!$path) return '';
         return str_starts_with($path, 'data:') || str_starts_with($path, 'http')
             ? $path
-            : Storage::disk('public')->url($path);
+            : '/storage/' . ltrim($path, '/');
     };
 
     $cmsNormalized = [];
@@ -97,7 +98,13 @@
             })->values()->all();
         }
 
+        // Draft tersimpan menimpa nilai yang sedang tayang agar editor melanjutkan draft terakhir.
+        $draft = $record['draft'] ?? null;
+        if (is_array($draft)) $content = array_replace($content, $draft);
+
         $cmsNormalized[$key] = [
+            'has_draft' => is_array($draft),
+            'draft_at' => $record['draft_at'] ?? null,
             'content' => $content,
             'status' => $record['status'] ?? 'Draft',
             'updated_at' => $record['updated_at'] ?? null,
@@ -112,12 +119,12 @@
         ->select('p.partner_id', 'p.partner_name', 'p.website_url', 'p.display_order', 'p.is_active', 'p.category_id', 'm.file_path', 'm.file_name')
         ->orderBy('p.display_order')->get()
         ->map(function ($p) {
-            $p->logo_url = empty($p->file_path) ? '' : (str_starts_with($p->file_path, 'data:') || str_starts_with($p->file_path, 'http') ? $p->file_path : Storage::disk('public')->url($p->file_path));
+            $p->logo_url = empty($p->file_path) ? '' : (str_starts_with($p->file_path, 'data:') || str_starts_with($p->file_path, 'http') ? $p->file_path : '/storage/' . ltrim($p->file_path, '/'));
             return $p;
         });
 
     $cmsMedia = $mediaRows->map(function ($m) {
-        $m->url = empty($m->file_path) ? '' : (str_starts_with($m->file_path, 'data:') || str_starts_with($m->file_path, 'http') ? $m->file_path : Storage::disk('public')->url($m->file_path));
+        $m->url = empty($m->file_path) ? '' : (str_starts_with($m->file_path, 'data:') || str_starts_with($m->file_path, 'http') ? $m->file_path : '/storage/' . ltrim($m->file_path, '/'));
         return $m;
     });
 @endphp
@@ -182,6 +189,89 @@
 .panel-head { display:flex; justify-content:space-between; align-items:center; padding:20px 24px; border-bottom:1px solid var(--neutral-200); gap:12px; }
 .panel-sub { font-size:12px; line-height:16px; color:var(--neutral-500); margin-top:4px; }
 .panel-body { padding:24px; }
+
+/* Mode lihat dan edit CMS */
+.cms-editor-fieldset {
+    border: 0;
+    padding: 0;
+    margin: 0;
+    min-width: 0;
+    width: 100%;
+}
+
+/* MODE LIHAT: field tanpa stroke */
+.cms-editor-fieldset:disabled input,
+.cms-editor-fieldset:disabled select,
+.cms-editor-fieldset:disabled textarea {
+    background: transparent !important;
+    border-color: transparent !important;
+    box-shadow: none !important;
+    outline: none !important;
+    opacity: 1;
+    color: var(--neutral-700);
+    cursor: default;
+    padding: 12px 14px !important;
+    box-sizing: border-box;
+}
+
+/* MODE LIHAT: hilangkan tampilan interaktif */
+/* VIEW MODE: fill tetap abu-abu, tanpa garis tepi */
+/* VIEW MODE: background abu-abu, tanpa outline */
+.cms-editor-fieldset:disabled input,
+.cms-editor-fieldset:disabled select,
+.cms-editor-fieldset:disabled textarea {
+    background-color: #f9fafb !important;
+    border: 1px solid transparent !important;
+    outline: none !important;
+    box-shadow: none !important;
+    opacity: 1 !important;
+    cursor: default;
+}
+
+/* Hilangkan efek hover dan focus */
+.cms-editor-fieldset:disabled input:hover,
+.cms-editor-fieldset:disabled select:hover,
+.cms-editor-fieldset:disabled textarea:hover,
+.cms-editor-fieldset:disabled input:focus,
+.cms-editor-fieldset:disabled select:focus,
+.cms-editor-fieldset:disabled textarea:focus {
+    background-color: #f9fafb !important;
+    border-color: transparent !important;
+    outline: none !important;
+    box-shadow: none !important;
+}
+
+/* MODE EDIT: tampilkan stroke field */
+.cms-editor-fieldset:not(:disabled) input,
+.cms-editor-fieldset:not(:disabled) select,
+.cms-editor-fieldset:not(:disabled) textarea {
+    border: 1px solid var(--neutral-300);
+    background: var(--surface, #fff);
+    box-shadow: none;
+    appearance: auto;
+    -webkit-appearance: menulist;
+    cursor: pointer;
+    padding-right: 36px !important;
+}
+
+/* MODE EDIT: stroke lebih jelas ketika field difokuskan */
+.cms-editor-fieldset:not(:disabled) input:focus,
+.cms-editor-fieldset:not(:disabled) select:focus,
+.cms-editor-fieldset:not(:disabled) textarea:focus {
+    border-color: var(--primary-500, #3b82f6);
+    box-shadow: 0 0 0 3px rgba(59, 130, 246, 0.12);
+    outline: none;
+}
+
+.cms-editor-fieldset:disabled .dropzone {
+    pointer-events: none;
+    cursor: default;
+}
+
+.cms-editor-fieldset:disabled .dropzone {
+    pointer-events: none;
+    cursor: default;
+}
 .panel-foot { display:flex; justify-content:space-between; align-items:center; gap:12px; padding:16px 24px; border-top:1px solid var(--neutral-200); background:var(--neutral-50); flex-wrap:wrap; }
 .panel-foot-actions { display:flex; gap:8px; }
 .panel-head-r { display:flex; align-items:center; gap:8px; flex-wrap:wrap; }
@@ -297,12 +387,27 @@
 .icon-prev { width:40px; height:40px; flex:none; }
 .icon-prev svg { width:100%; height:100%; display:block; }
 
-/* Toast */
-.toast { position:fixed; right:24px; bottom:24px; background:var(--neutral-900); color:#fff; padding:12px 16px; border-radius:var(--r-xl); box-shadow:var(--shadow-lg); font-size:14px; line-height:20px; z-index:100; opacity:0; transform:translateY(8px); transition:.2s; pointer-events:none; }
-.toast.show { opacity:1; transform:translateY(0); }
+/* Toast — elemen ini berada DI LUAR .cms-content, sehingga variabel --neutral-900 dkk
+   tidak tersedia di sini. Gunakan warna literal agar latar tidak menjadi transparan. */
+.toast { position:fixed; right:24px; bottom:24px; display:none; max-width:min(480px, calc(100vw - 48px)); background-color:#171717; color:#fff; padding:12px 16px; border-radius:12px; box-shadow:0 10px 15px -3px rgb(0 0 0 / .2), 0 4px 6px -4px rgb(0 0 0 / .2); font-family:'Inter',ui-sans-serif,system-ui,sans-serif; font-size:14px; line-height:20px; font-weight:500; overflow-wrap:anywhere; z-index:9999; cursor:pointer; }
+.toast.show { display:block; animation:cms-toast-in .2s ease-out; }
+.toast-success { background-color:#008236; }
+.toast-error { background-color:#c10007; }
+@keyframes cms-toast-in { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:none; } }
+
+/* Modal tambah item list */
+.cms-modal { position:fixed; inset:0; z-index:10000; display:none; align-items:center; justify-content:center; padding:24px; background:rgba(23,23,23,.52); }
+.cms-modal.show { display:flex; }
+.cms-modal-card { width:min(720px,100%); max-height:min(88vh,900px); display:flex; flex-direction:column; overflow:hidden; background:#fff; border:1px solid var(--neutral-200); border-radius:16px; box-shadow:0 20px 50px rgba(0,0,0,.22); }
+.cms-modal-head { display:flex; align-items:center; justify-content:space-between; gap:16px; padding:18px 22px; border-bottom:1px solid var(--neutral-200); }
+.cms-modal-title { font-family:var(--font-heading); font-size:17px; line-height:24px; font-weight:600; color:var(--neutral-900); }
+.cms-modal-body { overflow-y:auto; padding:22px; }
+.cms-modal-foot { display:flex; justify-content:flex-end; gap:10px; padding:16px 22px; border-top:1px solid var(--neutral-200); background:#fff; }
+.cms-modal-body .field-grid { gap:16px; }
+@media(max-width:720px) { .cms-modal { padding:12px; } .cms-modal-card { max-height:94vh; } .cms-modal-head,.cms-modal-body,.cms-modal-foot { padding-left:16px; padding-right:16px; } }
 
 @media(max-width:1050px) { .cms-dd { max-width:100%; } }
-@media(max-width:720px) { .field-grid { grid-template-columns:1fr; } .litem { flex-wrap:wrap; } .lthumb { width:100%; flex-basis:100%; } .lctl { flex-direction:row; } .panel-head,.panel-body,.panel-foot { padding-left:16px; padding-right:16px; } .toast { left:16px; right:16px; } }
+@media(max-width:720px) { .field-grid { grid-template-columns:1fr; } .litem { flex-wrap:wrap; } .lthumb { width:100%; flex-basis:100%; } .lctl { flex-direction:row; } .panel-head,.panel-body,.panel-foot { padding-left:16px; padding-right:16px; } .toast { left:16px; right:16px; max-width:none; } }
 </style>
 @endpush
 
@@ -316,9 +421,14 @@
         </div>
         <div class="cms-actions">
             <a href="{{ url('/cms/trash') }}" class="btn btn-secondary">Sampah CMS</a>
-            <a href="{{ Route::has('home') ? route('home') : url('/') }}" target="_blank" rel="noopener" class="btn btn-secondary">
+            <a href="{{ $cmsDraftPreviewUrl }}" target="_blank" rel="noopener" class="btn btn-secondary">
+                <svg class="ic" aria-hidden="true"><use href="#cms-i-eye"></use></svg> Pratinjau Draft
+            </a>
+            @if($cmsDraftPreviewUrl)    
+            <a href="{{ Route::has('home') ? route('home') : url('/') }}" target="_blank" rel="noopener" class="btn btn-primary">
                 <svg class="ic" aria-hidden="true"><use href="#cms-i-eye"></use></svg> Pratinjau Website
             </a>
+            @endif
         </div>
     </div>
 
@@ -372,6 +482,10 @@
     const CMS_SITE_URL = @json($cmsSiteUrl);
     const CMS_HAS_UPDATE_ROUTE = !!CMS_UPDATE_URL;
     let cmsCur = 'home';
+    let cmsIsEditing = false;
+    let cmsEditSnapshot = null;
+    let cmsModalListKey = null;
+    let cmsModalItem = {};
 
     // Konten kosong dari PHP bisa berupa [] (bukan {}); samakan agar aman di-JSON-kan.
     Object.keys(CMS_DATA).forEach(key => {
@@ -384,17 +498,33 @@
         '&':'&amp;', '<':'&lt;', '>':'&gt;', '"':'&quot;', "'":'&#039;'
     })[char]);
     const ic = name => `<svg class="ic" aria-hidden="true"><use href="#cms-i-${esc(name)}"></use></svg>`;
-    const toast = message => {
+    // type: 'success' (hijau) | 'error' (merah) | kosong (gelap). Klik untuk menutup.
+    const toast = (message, type = '') => {
         const el = $('#cms-toast');
         if (!el) return;
         el.textContent = message;
+        el.className = 'toast' + (type ? ` toast-${type}` : '');
+        void el.offsetWidth; // mulai ulang animasi bila toast muncul beruntun
         el.classList.add('show');
         clearTimeout(window.__cmsToastTimer);
-        window.__cmsToastTimer = setTimeout(() => el.classList.remove('show'), 3500);
+        window.__cmsToastTimer = setTimeout(() => el.classList.remove('show'), type === 'error' ? 8000 : 3500);
+        el.onclick = () => el.classList.remove('show');
     };
-    const statusBadge = status => {
+    const statusBadge = (status, hasDraft = false) => {
         const published = String(status).toLowerCase() === 'published';
-        return `<span class="status ${published ? 's-approved' : 's-pending'}">${esc(status || 'Draft')}</span>`;
+
+        if (published && hasDraft) {
+            return `<span class="status s-pending">Draft belum dipublikasikan</span>`;
+        }
+
+        return published
+            ? `<span class="status s-approved">Published</span>`
+            : `<span class="status s-pending">Draft</span>`;
+    };
+    const pageDot = key => {
+        const data = CMS_DATA[key];
+        const live = (data?.status || 'Draft') === 'Published';
+        return `<i class="sdot ${live && !data?.has_draft ? 'published' : ''}" title="${esc(live ? (data?.has_draft ? 'Published · ada draft' : 'Published') : 'Draft')}"></i>`;
     };
 
     /* ------------------------------------------------------------------
@@ -468,8 +598,7 @@
         about: [
             {t:'section',l:'Teks',d:'Kolom kiri pada bagian “Tentang perusahaan”.'},
             {k:'title',l:'Judul bagian',full:1,max:60,ph:'Tentang perusahaan'},
-            {k:'body',t:'textarea',rows:5,l:'Profil perusahaan (paragraf utama)',req:1,hint:'Cantumkan tanggal berdiri dan bidang usaha di paragraf ini.',ph:'PT Meditech Cipta Inovasi didirikan pada …'},
-            {k:'body2',t:'textarea',l:'Paragraf kedua',ph:'Kami berkomitmen memberikan pelayanan terbaik, …'},
+            {k:'body',t:'textarea',rows:5,l:'Profil perusahaan',req:1,hint:'Cantumkan tanggal berdiri dan bidang usaha di paragraf ini.',ph:'PT Meditech Cipta Inovasi didirikan pada …'},
             {k:'quote',t:'textarea',l:'Kutipan (kotak dengan garis kuning)',rows:2,max:160,ph:'Great things are never done by one person. They’re done by a team.'},
             {t:'section',l:'Foto',d:'Kolom kanan.'},
             {k:'img',t:'image',l:'Foto perusahaan',ratio:'4 / 3',w:420,hint:'Rasio 4:3. JPG, PNG, atau WebP · maks. 2 MB.'},
@@ -543,7 +672,7 @@
             ]}
         ],
         contact: [
-            {t:'section',l:'Bagian “Hubungi kami”',d:'Judul di samping formulir pesan.'},
+            {t:'section',l:'Bagian "Hubungi kami"',d:'Judul di samping formulir pesan.'},
             {k:'title',l:'Judul',max:40,ph:'Hubungi kami'},
             {k:'intro',t:'textarea',l:'Pengantar',rows:2,ph:'Kirim pesan atau datang langsung ke kantor kami.'},
 
@@ -556,7 +685,12 @@
             {t:'section',l:'Footer',d:'Kolom perusahaan dan baris hak cipta di bagian paling bawah.'},
             {k:'companyName',l:'Nama perusahaan',ph:'PT Meditech Cipta Inovasi'},
             {k:'tagline',l:'Tagline',ph:'Motivation Creative Innovation With Technology'},
-            {k:'copyright',l:'Teks hak cipta',full:1,ph:'© 2026 PT Meditech Cipta Inovasi'}
+            {k:'copyright',l:'Teks hak cipta',full:1,ph:'© 2026 PT Meditech Cipta Inovasi'},
+
+            {t:'section',l:'Header (Navbar)',d:'Logo dan nama situs yang tampil di header seluruh halaman.'},
+            {k:'siteName',l:'Nama situs (header)',max:40,ph:'MediTech',hint:'Teks yang tampil di sebelah logo di header.'},
+            {k:'headerLogo',t:'image',l:'Logo header',ratio:'1 / 1',w:120,hint:'Rasio 1:1 (persegi). JPG, PNG, atau WebP · maks. 2 MB.'},
+            {k:'headerLogoAlt',l:'Deskripsi logo header',full:1,max:120,ph:'Logo Meditech'}
         ]
     };
 
@@ -655,7 +789,7 @@
     function renderTabs() {
         $('#cms-tabs').innerHTML = CMS_PAGES.map(page=>{
             const status = CMS_DATA[page.k]?.status || 'Draft';
-            return `<button type="button" class="cms-tab ${page.k===cmsCur?'active':''}" data-cms-page="${page.k}" role="option" aria-selected="${page.k===cmsCur?'true':'false'}">${ic(page.icon)}<span>${esc(page.label)}</span>${page.k!=='media'?`<i class="sdot ${status==='Published'?'published':''}" title="${esc(status)}"></i>`:''}</button>`;
+            return `<button type="button" class="cms-tab ${page.k===cmsCur?'active':''}" data-cms-page="${page.k}" role="option" aria-selected="${page.k===cmsCur?'true':'false'}">${ic(page.icon)}<span>${esc(page.label)}</span>${page.k!=='media'?pageDot(page.k):''}</button>`;
         }).join('');
     }
     function partnersBlock() {
@@ -673,12 +807,49 @@
             ${CMS_MEDIA.map(media=>`<div class="mitem">${media.url?`<img src="${esc(media.url)}" alt="${esc(media.alt_text || media.file_name)}" class="${String(media.media_type||'').includes('svg')?'logo':''}">`:'<div class="q-empty">Pratinjau tidak tersedia</div>'}<b>${esc(media.file_name)}</b><span>${esc(media.alt_text || 'Media website')}</span></div>`).join('') || '<div class="q-empty">Pustaka media masih kosong.</div>'}
         </div></div></div>`;
     }
+
+    function startEdit() {
+        // Simpan kondisi konten sebelum mulai diedit
+        cmsEditSnapshot = JSON.parse(
+            JSON.stringify(getContent(cmsCur))
+        );
+
+        cmsIsEditing = true;
+        renderPage();
+    }
+
+    function discardEditChanges() {
+        if (cmsEditSnapshot) {
+            cmsDraft[cmsCur].content = JSON.parse(
+                JSON.stringify(cmsEditSnapshot)
+            );
+        }
+
+        cmsIsEditing = false;
+        cmsEditSnapshot = null;
+
+        renderPage();
+    }
+
+    function cancelEdit() {
+        const isDirty = JSON.stringify(getContent(cmsCur)) !==
+            JSON.stringify(cmsEditSnapshot);
+
+        if (isDirty && !confirm(
+            'Perubahan yang belum disimpan akan dibuang. Lanjutkan?'
+        )) {
+            return;
+        }
+
+        discardEditChanges();
+    }
+
     function renderPage() {
         const page = getPage(cmsCur);
         if (!page) return;
         renderTabs();
         const status = CMS_DATA[cmsCur]?.status || 'Draft';
-        $('#cms-dd-cur').innerHTML = `${ic(page.icon)}<span>${esc(page.label)}</span><i class="sdot ${status==='Published'?'published':''}"></i>`;
+        $('#cms-dd-cur').innerHTML = `${ic(page.icon)}<span>${esc(page.label)}</span>${pageDot(page.k)}`;
         $('#cms-dd').classList.remove('open');
         $('#cms-dd-btn').setAttribute('aria-expanded','false');
         if (cmsCur === 'media') return renderMedia();
@@ -688,15 +859,85 @@
         const fields = CMS_FIELDS[cmsCur] || [];
         const updated = CMS_DATA[cmsCur]?.updated_at ? new Date(CMS_DATA[cmsCur].updated_at).toLocaleString('id-ID') : 'belum pernah';
         const editor = fields.map(field=>renderBlock(field,content)).join('') + (cmsCur === 'partners' ? partnersBlock() : '');
-        const viewLink = page.anchor ? `<a class="btn btn-secondary btn-sm" href="${esc(CMS_SITE_URL + page.anchor)}" target="_blank" rel="noopener">${ic('eye')}Lihat di website</a>` : '';
+        
+        const modeLabel = cmsIsEditing
+            ? '<span class="status s-pending">Sedang Diedit</span>'
+            : '<span class="status s-neutral">Mode Lihat</span>';
+
         $('#cms-editor').innerHTML = `<div class="panel">
-            <div class="panel-head"><div><div class="panel-title">${esc(page.label)}</div><div class="panel-sub">${esc(page.desc || '')}</div><div class="panel-sub">Diperbarui ${esc(updated)} · ${esc(CMS_DATA[cmsCur]?.updated_by || 'System')}</div></div><div class="panel-head-r">${viewLink}${statusBadge(status)}</div></div>
-            <div class="panel-body"><div class="field-grid">${editor || '<div class="q-empty">Belum ada definisi field untuk halaman ini.</div>'}</div></div>
-            <div class="panel-foot"><span class="muted">Kolom bertanda * wajib diisi sebelum publish.</span><div class="panel-foot-actions">
-                <button type="button" class="btn btn-secondary" id="cms-save" ${CMS_HAS_UPDATE_ROUTE?'':'disabled'}>Simpan draft</button>
-                <button type="button" class="btn btn-primary" id="cms-publish" ${CMS_HAS_UPDATE_ROUTE?'':'disabled'}>${ic('upload')}Publish</button>
-            </div></div>
-            ${CMS_HAS_UPDATE_ROUTE?'':'<div style="padding:0 24px 16px"><p class="muted">Penyimpanan belum aktif karena route <code>cms.pages.update</code> belum terdaftar. Lihat <code>routes-cms-snippet.php</code>.</p></div>'}
+            <div class="panel-head">
+                <div>
+                    <div class="panel-title">${esc(page.label)}</div>
+                    <div class="panel-sub">${esc(page.desc || '')}</div>
+                    <div class="panel-sub">
+                        Diperbarui ${esc(updated)} · ${esc(CMS_DATA[cmsCur]?.updated_by || 'System')}
+                    </div>
+                </div>
+                <div class="panel-head-r">
+                    ${statusBadge(status, !!CMS_DATA[cmsCur]?.has_draft)}
+                    ${modeLabel}
+                </div>
+            </div>
+
+            <div class="panel-body">
+                <fieldset class="cms-editor-fieldset" ${cmsIsEditing ? '' : 'disabled'}>
+                    <div class="field-grid">
+                        ${editor || '<div class="q-empty">Belum ada definisi field untuk halaman ini.</div>'}
+                    </div>
+                </fieldset>
+            </div>
+
+            <div class="panel-foot">
+                <span class="muted">
+                    ${cmsIsEditing
+                        ? 'Anda sedang mengedit konten. Simpan sebagai Draft atau Publish untuk menerapkan perubahan.'
+                        : 'Konten sedang ditampilkan dalam mode lihat. Klik Edit untuk melakukan perubahan.'}
+                </span>
+
+                <div class="panel-foot-actions">
+                    ${cmsIsEditing ? `
+                        <button type="button" class="btn btn-secondary" id="cms-cancel">
+                            Batal
+                        </button>
+                        <button type="button" class="btn btn-secondary" id="cms-save"
+                            ${CMS_HAS_UPDATE_ROUTE ? '' : 'disabled'}>
+                            Simpan Draft
+                        </button>
+                        <button type="button" class="btn btn-primary" id="cms-publish"
+                            ${CMS_HAS_UPDATE_ROUTE ? '' : 'disabled'}>
+                            ${ic('upload')}Publish
+                        </button>
+                    ` : `
+                        <button type="button" class="btn btn-primary" id="cms-edit">
+                            Edit
+                        </button>
+                    `}
+                </div>
+            </div>
+
+            ${CMS_HAS_UPDATE_ROUTE ? '' : `
+                <div style="padding:0 24px 16px">
+                    <p class="muted">
+                        Penyimpanan belum aktif karena route
+                        <code>cms.pages.update</code> belum terdaftar.
+                    </p>
+                </div>
+            `}
+        </div>
+        <div class="cms-modal" id="cms-add-modal" aria-hidden="true">
+            <div class="cms-modal-card" role="dialog" aria-modal="true" aria-labelledby="cms-modal-title">
+                <div class="cms-modal-head">
+                    <div class="cms-modal-title" id="cms-modal-title">Tambah item</div>
+                    <button type="button" class="icon-act" id="cms-modal-close" aria-label="Tutup">&times;</button>
+                </div>
+                <div class="cms-modal-body">
+                    <div class="field-grid" id="cms-modal-fields"></div>
+                </div>
+                <div class="cms-modal-foot">
+                    <button type="button" class="btn btn-secondary" id="cms-modal-cancel">Batal</button>
+                    <button type="button" class="btn btn-primary" id="cms-modal-submit">Tambah</button>
+                </div>
+            </div>
         </div>`;
     }
 
@@ -704,16 +945,71 @@
      | List
      ------------------------------------------------------------------ */
     function listField(listKey) { return (CMS_FIELDS[cmsCur]||[]).find(f=>f.k===listKey && f.t==='list'); }
-    function addListItem(listKey) {
+    function openAddListModal(listKey) {
         const field = listField(listKey);
-        if (!field) return;
+        if (!field || !cmsIsEditing) return;
+
+        const rows = getContent(cmsCur)[listKey];
+        const count = Array.isArray(rows) ? rows.length : 0;
+        if (field.max && count >= field.max) {
+            toast(`Maksimal ${field.max} item.`, 'error');
+            return;
+        }
+
+        cmsModalListKey = listKey;
+        cmsModalItem = {};
+        field.item.forEach(sub => {
+            cmsModalItem[sub.k] = sub.def ?? '';
+        });
+
+        $('#cms-modal-title').textContent = field.add || `Tambah ${field.l}`;
+        $('#cms-modal-fields').innerHTML = field.item
+            .map(sub => renderField(sub, `__modal.${sub.k}`, cmsModalItem[sub.k]))
+            .join('');
+        const modal = $('#cms-add-modal');
+        modal.classList.add('show');
+        modal.setAttribute('aria-hidden', 'false');
+        const firstInput = $('#cms-modal-fields input:not([type="file"]), #cms-modal-fields textarea, #cms-modal-fields select');
+        firstInput?.focus();
+    }
+
+    function closeAddListModal() {
+        const modal = $('#cms-add-modal');
+        if (modal) {
+            modal.classList.remove('show');
+            modal.setAttribute('aria-hidden', 'true');
+        }
+        cmsModalListKey = null;
+        cmsModalItem = {};
+    }
+
+    function saveAddListModal() {
+        if (!cmsModalListKey) return;
+        const field = listField(cmsModalListKey);
+        if (!field) return closeAddListModal();
+
+        for (const sub of field.item) {
+            if (sub.req && !String(cmsModalItem[sub.k] ?? '').trim()) {
+                toast(`Lengkapi “${sub.l}” terlebih dahulu.`, 'error');
+                $(`[data-cms-path="__modal.${sub.k}"]`)?.focus();
+                return;
+            }
+        }
+
         const content = getContent(cmsCur);
-        const rows = Array.isArray(content[listKey]) ? content[listKey] : (content[listKey]=[]);
-        if (field.max && rows.length >= field.max) return toast(`Maksimal ${field.max} item.`);
-        const item = {};
-        field.item.forEach(sub=>item[sub.k]=sub.def || '');
-        rows.push(item);
+        const rows = Array.isArray(content[cmsModalListKey])
+            ? content[cmsModalListKey]
+            : (content[cmsModalListKey] = []);
+        if (field.max && rows.length >= field.max) {
+            toast(`Maksimal ${field.max} item.`, 'error');
+            closeAddListModal();
+            return;
+        }
+
+        rows.push(JSON.parse(JSON.stringify(cmsModalItem)));
+        closeAddListModal();
         renderPage();
+        toast('Item ditambahkan. Klik Simpan Draft atau Publish untuk menyimpan perubahan.');
     }
     function moveListItem(listKey,index,direction) {
         const rows = getContent(cmsCur)[listKey];
@@ -742,7 +1038,7 @@
                 for (let i=0;i<rows.length;i++) {
                     for (const sub of field.item) {
                         if (sub.req && !String(rows[i]?.[sub.k] ?? '').trim()) {
-                            toast(`Lengkapi “${sub.l}” pada ${field.l} nomor ${i+1}.`);
+                            toast(`Lengkapi “${sub.l}” pada ${field.l} nomor ${i+1}.`, 'error');
                             $(`[data-cms-path="${field.k}.${i}.${sub.k}"]`)?.focus();
                             return false;
                         }
@@ -751,7 +1047,7 @@
                 continue;
             }
             if (field.req && !String(content[field.k] ?? '').trim()) {
-                toast(`Lengkapi “${field.l}” sebelum publish.`);
+                toast(`Lengkapi “${field.l}” sebelum publish.`, 'error');
                 $(`[data-cms-path="${field.k}"]`)?.focus();
                 return false;
             }
@@ -759,7 +1055,9 @@
         return true;
     }
     async function saveCMS(publish) {
-        if (!CMS_HAS_UPDATE_ROUTE) return toast('Route penyimpanan CMS belum tersedia di backend.');
+        if (!cmsIsEditing) {
+            return toast('Klik Edit terlebih dahulu untuk mengubah konten.', 'error');}
+        if (!CMS_HAS_UPDATE_ROUTE) return toast('Route penyimpanan CMS belum tersedia di backend.', 'error');
         const slug = getPage(cmsCur)?.slug;
         if (!slug) return toast('Halaman ini dikelola melalui modul khusus.');
         if (publish && !validateRequired()) return;
@@ -778,12 +1076,20 @@
                 },
                 body:JSON.stringify({content:getContent(cmsCur),status:publish?'Published':'Draft'})
             });
-            const result = await response.json().catch(()=>({}));
-            if (!response.ok) throw new Error(result.message || 'Gagal menyimpan konten.');
-            toast(result.message || (publish?'Konten dipublikasikan.':'Draft tersimpan.'));
-            setTimeout(() => window.location.reload(), 600);
+            const result = await response.json().catch(() => ({}));
+            if (!response.ok) {
+                // Pesan 422 (validasi) aman ditampilkan; error server (5xx) tidak boleh membocorkan detail teknis.
+                const message = response.status === 422 && result.message
+                    ? result.message
+                    : response.status === 403 ? 'Anda tidak memiliki izin untuk menyimpan konten CMS.'
+                    : response.status === 419 ? 'Sesi Anda sudah berakhir. Muat ulang halaman lalu coba lagi.'
+                    : 'Gagal menyimpan konten. Silakan coba lagi atau hubungi administrator.';
+                throw new Error(message);
+            }
+            toast(result.message || (publish ? 'Konten dipublikasikan.' : 'Draft tersimpan.'), 'success');
+            setTimeout(() => window.location.reload(), 900);
         } catch (error) {
-            toast(error.message || 'Terjadi kesalahan saat menyimpan.');
+            toast(error.message || 'Terjadi kesalahan saat menyimpan.', 'error');
             buttons.forEach(button => button.disabled = false);
         }
     }
@@ -792,10 +1098,49 @@
      | Event
      ------------------------------------------------------------------ */
     document.addEventListener('click', event => {
+        if (event.target.closest('#cms-modal-close') || event.target.closest('#cms-modal-cancel')) {
+            closeAddListModal();
+            return;
+        }
+        if (event.target.closest('#cms-modal-submit')) {
+            saveAddListModal();
+            return;
+        }
+        if (event.target.id === 'cms-add-modal') {
+            closeAddListModal();
+            return;
+        }
+        if (event.target.closest('#cms-edit')) {startEdit();return;}
+        if (event.target.closest('#cms-cancel')) {cancelEdit(); return;}
         const pageButton = event.target.closest('[data-cms-page]');
-        if (pageButton) { cmsCur = pageButton.dataset.cmsPage; renderPage(); return; }
+        if (pageButton) {
+            if (cmsIsEditing) {
+                const isDirty = JSON.stringify(getContent(cmsCur)) !==
+                    JSON.stringify(cmsEditSnapshot);
+
+                if (isDirty && !confirm(
+                    'Perubahan belum disimpan. Tinggalkan halaman dan buang perubahan?'
+                )) {
+                    return;
+                }
+
+                discardEditChanges();
+            }
+
+            cmsCur = pageButton.dataset.cmsPage;
+            renderPage();
+            return;
+        }
+        if (
+            event.target.closest('[data-list-add]') ||
+            event.target.closest('[data-list-up]') ||
+            event.target.closest('[data-list-down]') ||
+            event.target.closest('[data-list-remove]')
+        ) {
+            if (!cmsIsEditing) return;
+        }
         const addButton = event.target.closest('[data-list-add]');
-        if (addButton) { addListItem(addButton.dataset.listAdd); return; }
+        if (addButton) { openAddListModal(addButton.dataset.listAdd); return; }
         const upButton = event.target.closest('[data-list-up]');
         if (upButton) { const [key,index]=upButton.dataset.listUp.split(':'); moveListItem(key,Number(index),-1); return; }
         const downButton = event.target.closest('[data-list-down]');
@@ -815,8 +1160,18 @@
         }
     });
     document.addEventListener('input', event => {
+        if (!cmsIsEditing) return;
+
         const path = event.target.dataset.cmsPath;
         if (!path) return;
+        if (path.startsWith('__modal.')) {
+            cmsModalItem[path.slice('__modal.'.length)] = event.target.value;
+            if (event.target.matches('[data-icon-select]')) {
+                const preview = event.target.closest('.sel-icon')?.querySelector('.icon-prev');
+                if (preview) preview.innerHTML = iconSvg(event.target.value);
+            }
+            return;
+        }
         setAtPath(path,event.target.value);
         if (event.target.matches('[data-icon-select]')) {
             const preview = event.target.closest('.sel-icon')?.querySelector('.icon-prev');
@@ -824,15 +1179,29 @@
         }
     });
     document.addEventListener('change', event => {
+        if (!cmsIsEditing) return;
+
+        const changedPath = event.target.dataset.cmsPath;
+        if (changedPath?.startsWith('__modal.')) {
+            cmsModalItem[changedPath.slice('__modal.'.length)] = event.target.value;
+        } else if (changedPath) {
+            setAtPath(changedPath, event.target.value);
+        }
+
         const input = event.target.closest('input[type="file"][data-cms-image]');
         if (!input) return;
         const file = input.files?.[0];
         if (!file) return;
-        if (!['image/jpeg','image/png','image/webp'].includes(file.type)) { toast('Format gambar harus JPG, PNG, atau WebP.'); input.value=''; return; }
-        if (file.size > 2*1024*1024) { toast('Ukuran gambar maksimal 2 MB.'); input.value=''; return; }
+        if (!['image/jpeg','image/png','image/webp'].includes(file.type)) { toast('Format gambar harus JPG, PNG, atau WebP.', 'error'); input.value=''; return; }
+        if (file.size > 2*1024*1024) { toast('Ukuran gambar maksimal 2 MB.', 'error'); input.value=''; return; }
         const reader = new FileReader();
         reader.onload = () => {
-            setAtPath(input.dataset.cmsImage,reader.result);
+            const imagePath = input.dataset.cmsImage;
+            if (imagePath.startsWith('__modal.')) {
+                cmsModalItem[imagePath.slice('__modal.'.length)] = reader.result;
+            } else {
+                setAtPath(imagePath,reader.result);
+            }
             const wrapper = input.closest('.dropzone');
             let img = wrapper.querySelector('img');
             if (!img) { img=document.createElement('img'); img.alt='Pratinjau gambar'; wrapper.prepend(img); }
@@ -843,7 +1212,11 @@
         reader.readAsDataURL(file);
     });
     document.addEventListener('keydown', event => {
-        if (event.key==='Escape') { $('#cms-dd')?.classList.remove('open'); $('#cms-dd-btn')?.setAttribute('aria-expanded','false'); }
+        if (event.key==='Escape') {
+            if ($('#cms-add-modal')?.classList.contains('show')) closeAddListModal();
+            $('#cms-dd')?.classList.remove('open');
+            $('#cms-dd-btn')?.setAttribute('aria-expanded','false');
+        }
     });
 
     renderPage();
